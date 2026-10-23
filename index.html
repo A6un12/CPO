@@ -1758,35 +1758,73 @@ function unlocked(){try{return localStorage.getItem('cpoacc')==='1'}catch(e){ret
 function gate(){clearTimeout(tm);view='gate';
 $('app').innerHTML=head()+`<section style="max-width:460px;margin:40px auto 0;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:28px 24px;border-bottom:6px solid var(--brass)"><h1 style="font-size:26px;line-height:1.25;margin:0 0 8px">Enter coupon code</h1><p style="margin:0 0 18px;opacity:.8">Enter your coupon code to access the Civil Police Officer practice quiz.</p><input id="cc" type="text" autocomplete="off" autocapitalize="characters" placeholder="Coupon code" onkeydown="if(event.key==='Enter')tryCode()" style="width:100%;box-sizing:border-box;padding:13px 14px;font-size:17px;letter-spacing:1px;border-radius:12px;border:1.5px solid var(--line);background:transparent;color:var(--ink)"><div id="cerr" style="color:#d64545;font-size:14px;min-height:20px;margin:8px 0 6px"></div><button class="btn" style="width:100%" onclick="tryCode()">Unlock</button></section>`;
 setTimeout(()=>{const e=$('cc');if(e)e.focus()},50);}
-function tryCode(){const v=(($('cc')||{}).value||'').replace(/\s+/g,'').toUpperCase();
-if(validCoupon(v)){try{localStorage.setItem('cpoacc','1')}catch(e){}home();}
-else{$('cerr').textContent=v?'Invalid coupon code. Please check and try again.':'Please enter your coupon code.';}}
+async function tryCode(){const v=(($('cc')||{}).value||'').replace(/\s+/g,'').toUpperCase();
+if(!v){$('cerr').textContent='Please enter your coupon code.';return}
+let ok=validCoupon(v);
+if(!ok&&ONLINE){$('cerr').textContent='Checking...';
+try{ok=await remoteCheck(v)}catch(e){$('cerr').textContent='Could not check the code. Please check your internet connection and try again.';return}}
+if(ok){try{localStorage.setItem('cpoacc','1')}catch(e){}home();}
+else $('cerr').textContent='Invalid coupon code. Please check and try again.';}
 function powerOff(){clearTimeout(tm);run=null;try{localStorage.removeItem('cpoacc')}catch(e){}gate();}
 const INP='width:100%;box-sizing:border-box;padding:13px 14px;font-size:17px;border-radius:12px;border:1.5px solid var(--line);background:transparent;color:var(--ink)';
 const CARD='max-width:460px;margin:40px auto 0;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:28px 24px;border-bottom:6px solid var(--brass)';
 function localCoupons(){try{const a=JSON.parse(localStorage.getItem('cpocoupons')||'[]');return Array.isArray(a)?a.filter(c=>c&&typeof c.code==='string'):[]}catch(e){return[]}}
 function saveCoupons(a){try{localStorage.setItem('cpocoupons',JSON.stringify(a));return true}catch(e){return false}}
-function validCoupon(v){return v==='CPO661'||localCoupons().some(c=>c.code===v)}
+const DEFAULT_CODE='CPO661';
+const LOCAL_ADMIN_PW='a6un@12';
+const BACKEND={url:'',key:'',adminEmail:''};
+const SB=BACKEND.url.replace(/\/+$/,'');
+const ONLINE=!!(SB&&BACKEND.key&&BACKEND.adminEmail);
+let adminToken='';
+function validCoupon(v){return (!!DEFAULT_CODE&&v===DEFAULT_CODE)||localCoupons().some(c=>c.code===v)}
+function sbHeaders(tok,extra){return Object.assign({apikey:BACKEND.key,Authorization:'Bearer '+(tok||BACKEND.key),'Content-Type':'application/json'},extra||{})}
+async function sbJson(r){let d=null;try{d=await r.json()}catch(e){}if(!r.ok)throw new Error((d&&(d.message||d.msg||d.error_description||d.error))||('HTTP '+r.status));return d}
+async function remoteCheck(code){const r=await fetch(SB+'/rest/v1/rpc/check_coupon',{method:'POST',headers:sbHeaders(),body:JSON.stringify({c:code})});return (await sbJson(r))===true}
+async function remoteLogin(pw){const r=await fetch(SB+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:BACKEND.key,'Content-Type':'application/json'},body:JSON.stringify({email:BACKEND.adminEmail,password:pw})});const d=await sbJson(r);return d.access_token}
+async function remoteList(){const r=await fetch(SB+'/rest/v1/coupons?select=code,created_at&order=created_at.desc',{headers:sbHeaders(adminToken)});return sbJson(r)}
+async function remoteAdd(code){const r=await fetch(SB+'/rest/v1/coupons',{method:'POST',headers:sbHeaders(adminToken,{Prefer:'return=representation'}),body:JSON.stringify({code})});return sbJson(r)}
+async function remoteDel(code){const r=await fetch(SB+'/rest/v1/coupons?code=eq.'+encodeURIComponent(code),{method:'DELETE',headers:sbHeaders(adminToken)});if(!r.ok)await sbJson(r)}
+function expired(e){return /jwt|token/i.test(String((e&&e.message)||''))}
+function backToLogin(){adminToken='';adminLogin();setTimeout(()=>{const x=$('aerr');if(x)x.textContent='Session expired. Please log in again.'},60)}
 function fmtDT(iso){const d=new Date(iso);if(isNaN(d))return 'Unknown';return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})+', '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})}
 function adminLogin(){clearTimeout(tm);view='login';
 $('app').innerHTML=head()+`<section style="${CARD}"><h1 style="font-size:26px;line-height:1.25;margin:0 0 8px">Admin access only</h1><p style="margin:0 0 18px;opacity:.8">This section is only for the administrator.</p><input id="au" type="text" autocomplete="off" autocapitalize="off" placeholder="Username" style="${INP}"><input id="ap" type="password" autocomplete="off" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()" style="${INP};margin-top:10px"><div id="aerr" style="color:#d64545;font-size:14px;min-height:20px;margin:8px 0 6px"></div><div class="row"><button class="btn" style="flex:1" onclick="doLogin()">Login</button><button class="ghost" onclick="gate()">Back</button></div></section>`;
 setTimeout(()=>{const e=$('au');if(e)e.focus()},50);}
-function doLogin(){const u=(($('au')||{}).value||'').trim(),p=($('ap')||{}).value||'';
-if(u==='admin'&&p==='a6un@12')adminPage();else $('aerr').textContent='Incorrect username or password.';}
-function adminPage(msg,err){clearTimeout(tm);view='admin';
-const a=localCoupons();
+async function doLogin(){const u=(($('au')||{}).value||'').trim(),p=($('ap')||{}).value||'';
+const bad='Incorrect username or password.';
+if(u!=='admin'){$('aerr').textContent=bad;return}
+if(ONLINE){$('aerr').textContent='Signing in...';
+try{adminToken=await remoteLogin(p)}catch(e){$('aerr').textContent=e instanceof TypeError?'Could not connect. Please check your internet connection.':bad;return}
+await adminPage();return}
+if(!LOCAL_ADMIN_PW){$('aerr').textContent='Admin sign-in is not set up yet.';return}
+if(p===LOCAL_ADMIN_PW)adminPage();else $('aerr').textContent=bad;}
+async function adminPage(msg,err){clearTimeout(tm);view='admin';
+let list=[],loadErr='';
+if(ONLINE){try{list=await remoteList()}catch(e){if(expired(e)){backToLogin();return}loadErr=e instanceof TypeError?'Could not connect. Please check your internet connection.':'Could not load coupon codes: '+e.message}}
+else list=localCoupons().map(c=>({code:c.code,created_at:c.added})).reverse();
 const row=(code,note,del)=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;background:var(--card)"><div><b style="letter-spacing:1px">${esc(code)}</b><div style="font-size:13px;opacity:.75;margin-top:2px">${note}</div></div>${del}</div>`;
-const rows=a.map((c,i)=>row(c.code,'Added: '+esc(fmtDT(c.added)),`<button class="ghost" onclick="delCoupon(${i})" aria-label="Delete coupon" title="Delete">Delete</button>`)).reverse().join('');
-$('app').innerHTML=head()+`<section style="${CARD};margin-top:24px;max-width:560px"><h1 style="font-size:24px;line-height:1.25;margin:0 0 6px">Coupon codes</h1><p style="margin:0 0 16px;opacity:.8">Add a custom coupon code. Each code stores the date and time it was added.</p><div class="row"><input id="nc" type="text" autocomplete="off" autocapitalize="characters" placeholder="New coupon code" onkeydown="if(event.key==='Enter')addCoupon()" style="${INP};flex:1;min-width:0"><button class="btn" onclick="addCoupon()">Add</button></div><div style="font-size:14px;min-height:20px;margin:8px 0 14px;color:${err?'#d64545':'#2e9e5b'}">${esc(msg||'')}</div><h2 style="font-size:16px;margin:0 0 10px">All coupon codes (${a.length+1})</h2>${rows}${row('CPO661','Default code (built in)','')}<p style="font-size:13px;opacity:.7;margin:12px 0 0">Custom codes are saved in this browser only.</p></section>`;
+const rows=list.map(c=>row(c.code,'Added: '+esc(fmtDT(c.created_at)),`<button class="ghost" data-c="${esc(c.code)}" onclick="delCoupon(this.dataset.c)" aria-label="Delete coupon" title="Delete">Delete</button>`)).join('');
+const total=list.length+(DEFAULT_CODE?1:0);
+const foot=ONLINE?'Custom codes are shared with all users.':'Custom codes are saved in this browser only.';
+const shown=msg||loadErr||'';
+$('app').innerHTML=head()+`<section style="${CARD};margin-top:24px;max-width:560px"><h1 style="font-size:24px;line-height:1.25;margin:0 0 6px">Coupon codes</h1><p style="margin:0 0 16px;opacity:.8">Add a custom coupon code. Each code stores the date and time it was added.</p><div class="row"><input id="nc" type="text" autocomplete="off" autocapitalize="characters" placeholder="New coupon code" onkeydown="if(event.key==='Enter')addCoupon()" style="${INP};flex:1;min-width:0"><button class="btn" onclick="addCoupon()">Add</button></div><div style="font-size:14px;min-height:20px;margin:8px 0 14px;color:${(err||loadErr)?'#d64545':'#2e9e5b'}">${esc(shown)}</div><h2 style="font-size:16px;margin:0 0 10px">All coupon codes (${total})</h2>${rows}${DEFAULT_CODE?row(DEFAULT_CODE,'Default code (built in)',''):''}<p style="font-size:13px;opacity:.7;margin:12px 0 0">${foot}</p></section>`;
 setTimeout(()=>{const e=$('nc');if(e)e.focus()},50);}
-function addCoupon(){const raw=(($('nc')||{}).value||'').replace(/\s+/g,'').toUpperCase();
+async function addCoupon(){const raw=(($('nc')||{}).value||'').replace(/\s+/g,'').toUpperCase();
 if(!raw)return adminPage('Enter a coupon code.',true);
 if(!/^[A-Z0-9_-]{3,20}$/.test(raw))return adminPage('Use 3 to 20 letters, numbers, hyphens or underscores.',true);
-const a=localCoupons();if(raw==='CPO661'||a.some(c=>c.code===raw))return adminPage('That coupon code already exists.',true);
+if(DEFAULT_CODE&&raw===DEFAULT_CODE)return adminPage('That coupon code already exists.',true);
+if(ONLINE){try{await remoteAdd(raw)}catch(e){if(expired(e)){backToLogin();return}
+return adminPage(/duplicate|already exists|23505/i.test(e.message)?'That coupon code already exists.':(e instanceof TypeError?'Could not connect. Please check your internet connection.':'Could not add the coupon: '+e.message),true)}
+return adminPage('Coupon '+raw+' added for all users.')}
+const a=localCoupons();if(a.some(c=>c.code===raw))return adminPage('That coupon code already exists.',true);
 a.push({code:raw,added:new Date().toISOString()});
 if(!saveCoupons(a))return adminPage('Could not save in this browser.',true);
 adminPage('Coupon '+raw+' added.');}
-function delCoupon(i){const a=localCoupons();a.splice(i,1);saveCoupons(a);adminPage('Coupon removed.');}
+async function delCoupon(code){
+if(ONLINE){try{await remoteDel(code)}catch(e){if(expired(e)){backToLogin();return}
+return adminPage(e instanceof TypeError?'Could not connect. Please check your internet connection.':'Could not remove the coupon: '+e.message,true)}
+return adminPage('Coupon removed.')}
+saveCoupons(localCoupons().filter(c=>c.code!==code));adminPage('Coupon removed.');}
 if(unlocked())home();else gate();
 </script>
 </body>
